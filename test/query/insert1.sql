@@ -1,5 +1,5 @@
-INSERT
-	INTO Postcode_tbl_2 (
+INSERT INTO
+	Postcode_tbl_2 (
 		postcode,
 		longitude,
 		latitude

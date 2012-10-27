@@ -30,6 +30,9 @@ WHERE
 		2,
 		3
 	)
+GROUP BY
+	field1,
+	field2
 ORDER BY
 	ixBugEventLatest DESC
 LIMIT

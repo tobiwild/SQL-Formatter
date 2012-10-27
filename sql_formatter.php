@@ -3,7 +3,18 @@
 class SqlFormatter {
     private $options = array(
         'firstLevelKeywords' => array(
-            'select', 'from', 'where', 'inner join', 'left join', 'order by', 'update', 'set', 'insert', 'limit'
+            'select',
+            "(delete (ignore )?)?from",
+            'where',
+            'inner join',
+            'left join',
+            'order by',
+            '(on duplicate key )?update',
+            'set',
+            'insert (ignore )?into',
+            'limit',
+            'group by',
+            'values',
         ),
         'wrapChars' => array(','),
         'wrapWords' => array('or', 'and')
