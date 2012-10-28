@@ -8,11 +8,11 @@ function colorizeQuery($query) {
 
 $formatter = new SqlFormatter();
 
-foreach (glob(__DIR__ . '/query/select1.sql') as $file) {
+foreach (glob(__DIR__ . '/query/*.sql') as $file) {
     $originalQuery    = file_get_contents($file);
     $unformattedQuery = str_replace(array("\n", "\t"), ' ', $originalQuery);
     $formattedQuery   = $formatter->format($unformattedQuery);
-continue;
+
     if ($originalQuery === $formattedQuery) {
         echo $file . ' is correct' . PHP_EOL;
     } else {
