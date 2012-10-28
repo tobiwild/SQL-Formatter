@@ -18,6 +18,6 @@ foreach (glob(__DIR__ . '/query/*.sql') as $file) {
     } else {
         echo $file . ' is not correct:' . PHP_EOL;
         echo 'expected:' . PHP_EOL . colorizeQuery($originalQuery) . PHP_EOL;
-        echo 'actual:'. PHP_EOL . colorizeQuery($formattedQuery) . PHP_EOL;
+        echo 'actual:' . PHP_EOL . colorizeQuery($formattedQuery) . PHP_EOL;
     }
 }

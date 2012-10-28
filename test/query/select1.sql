@@ -4,7 +4,7 @@ SELECT
 	Area.nTypeAs nAreaType
 FROM
 	(
-		Bug
+		`select`
 		INNER JOIN
 			Area ON Bug.ixArea = Area.ixArea
 	)

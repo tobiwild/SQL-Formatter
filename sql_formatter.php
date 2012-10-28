@@ -17,7 +17,8 @@ class SqlFormatter {
             'values',
         ),
         'wrapChars' => array(','),
-        'wrapWords' => array('or', 'and')
+        'wrapWords' => array('or', 'and'),
+        'quoteChars' => array('\'', '`')
     );
 
     public function __construct($options = array())
@@ -91,7 +92,10 @@ class SqlFormatter {
 
     private function getPattern($pattern, $modifier = '')
     {
-        $lookAheadEvenQuotes = "(?=[^']*('[^']*'[^']*)*$)";
+        $lookAheadEvenQuotes = '';
+        foreach ($this->options['quoteChars'] as $c) {
+            $lookAheadEvenQuotes .= "(?=[^${c}]*(${c}[^${c}]*${c}[^${c}]*)*$)";
+        }
 
         return '/' . $pattern . $lookAheadEvenQuotes . '/' . $modifier;
     }
