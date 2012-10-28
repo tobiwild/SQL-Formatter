@@ -1,6 +1,14 @@
 <?php
 
 class SqlFormatter {
+    const UNDEFINED_TOKEN           = 'undefined';
+    const FIRST_LEVEL_KEYWORD_TOKEN = 'first_level_keyword';
+    const KEYWORD_TOKEN             = 'keyword';
+    const CHAR_TOKEN                = 'char';
+    const QUOTE_TOKEN               = 'quote';
+    const OPENING_PARENTHESES_TOKEN = 'opening_parentheses';
+    const CLOSING_PARENTHESES_TOKEN = 'closing_parentheses';
+
     private $options = array(
         'firstLevelKeywords' => array(
             'select',
@@ -16,9 +24,10 @@ class SqlFormatter {
             'group by',
             'values',
         ),
-        'wrapChars' => array(','),
-        'wrapWords' => array('or', 'and'),
-        'quoteChars' => array('\'', '`')
+        'wrapChars'     => array(','),
+        'wrapWords'     => array('or', 'and'),
+        'quoteChars'    => '\'`"',
+        'coverUpChar' => '_'
     );
 
     public function __construct($options = array())
@@ -28,11 +37,143 @@ class SqlFormatter {
 
     public function format($query)
     {
+        $tokens = $this->getTokens($query);
+return;
         $query = $this->wrapFirstLevelKeywords($query);
         $query = $this->wrapWords($query);
         $query = $this->wrapParentheses($query);
         $query = $this->wrapChars($query);
         $query = ltrim($query, "\n");
+
+        return $query;
+    }
+
+    private function getTokens($query)
+    {
+        $quoteTokens  = $this->getQuoteTokens($query);
+        $query        = $this->coverUpTokens($query, $quoteTokens);
+
+        $tokens =
+             $this->getTokensByPatterns($query,
+                array_map(array($this, 'getWordPattern'), $this->options['firstLevelKeywords']),
+                self::FIRST_LEVEL_KEYWORD_TOKEN)
+
+             +
+
+             $this->getTokensByPatterns($query,
+                array_map(array($this, 'getWordPattern'), $this->options['wrapWords']),
+                self::KEYWORD_TOKEN)
+
+             +
+
+             $this->getTokensByPatterns($query,
+                array_map(array($this, 'getCharPattern'), $this->options['wrapChars']),
+                self::CHAR_TOKEN)
+
+             +
+
+             $this->getTokensByPatterns($query, array('/\(/'),
+                self::OPENING_PARENTHESES_TOKEN)
+
+             +
+
+             $this->getTokensByPatterns($query, array('/\)/'),
+                self::CLOSING_PARENTHESES_TOKEN)
+
+             +
+
+             $quoteTokens;
+
+
+        $tokens += $this->getUndefinedTokens($tokens, $query);
+        ksort($tokens);
+
+        return $tokens;
+    }
+
+    private function getUndefinedTokens($tokens, $query)
+    {
+        ksort($tokens);
+
+        $startIndex      = 0;
+        $undefinedTokens = array();
+
+        foreach ($tokens as $index => $token) {
+            $undefinedTokenValue = substr($query, $startIndex, $index - $startIndex);
+
+            if (strlen($undefinedTokenValue)) {
+                $undefinedTokens[$startIndex] = array(
+                    'type' => self::UNDEFINED_TOKEN,
+                    'value' => $undefinedTokenValue
+                );
+            }
+
+            $startIndex = $index + strlen($token['value']);
+        }
+
+        $undefinedTokenValue = substr($query, $startIndex, strlen($query) - $startIndex);
+
+        if (strlen($undefinedTokenValue)) {
+            $undefinedTokens[$startIndex] = array(
+                'type' => self::UNDEFINED_TOKEN,
+                'value' => $undefinedTokenValue
+            );
+        }
+
+        return $undefinedTokens;
+    }
+
+
+    private function getTokensByPatterns($query, $patterns, $type) {
+        $result = array();
+
+        foreach ($patterns as $pattern)
+        {
+            preg_match_all($pattern, $query, $m, PREG_OFFSET_CAPTURE);
+
+            foreach($m[0] as $match) {
+                $result[$match[1]] = array(
+                    'type'  => $type,
+                    'value' => $match[0]
+                );
+            }
+        }
+
+        return $result;
+
+    }
+
+    private function getQuoteTokens($query)
+    {
+        $result = array();
+
+        $chars = $this->options['quoteChars'];
+        preg_match_all("/(?<!\\\\)(\\\\\\\\)*([${chars}])/", $query, $m,  PREG_OFFSET_CAPTURE );
+
+        $relevant = null;
+        foreach ($m[2] as $quoteMatch) {
+            if (is_null($relevant)) {
+                $relevant = $quoteMatch;
+            } elseif ($quoteMatch[0] === $relevant[0]) {
+                $result[$relevant[1]] = array(
+                    'type'  => self::QUOTE_TOKEN,
+                    'value' => substr($query, $relevant[1], $quoteMatch[1] - $relevant[1] + 1)
+                );
+
+                $relevant = null;
+            }
+        }
+
+        return $result;
+    }
+
+    private function coverUpTokens($query, $tokens)
+    {
+        foreach ($tokens as $index => $token) {
+            $length = strlen($token['value']);
+            $query  = substr_replace($query,  str_repeat($this->options['coverUpChar'], $length),
+                $index, $length);
+        }
 
         return $query;
     }
@@ -75,29 +216,19 @@ class SqlFormatter {
         }, $result);
     }
 
-    private function getFirstLevelKeywordPattern($keyword)
-    {
-        return $this->getWordPattern($keyword, "[\n ]*");
-    }
-
     private function getCharPattern($char)
     {
-        return $this->getPattern('(' . $char . ")[\n ]*");
+        return $this->getPattern($char);
     }
 
-    private function getWordPattern($word, $prePattern = '')
+    private function getWordPattern($word)
     {
-        return $this->getPattern($prePattern . "(\b$word\b)[\n ]*", 'i');
+        return $this->getPattern("\b$word\b", 'i');
     }
 
     private function getPattern($pattern, $modifier = '')
     {
-        $lookAheadEvenQuotes = '';
-        foreach ($this->options['quoteChars'] as $c) {
-            $lookAheadEvenQuotes .= "(?=[^${c}]*(${c}[^${c}]*${c}[^${c}]*)*$)";
-        }
-
-        return '/' . $pattern . $lookAheadEvenQuotes . '/' . $modifier;
+        return '/' . $pattern . '/' . $modifier;
     }
 
     private function wrapParentheses($result)
