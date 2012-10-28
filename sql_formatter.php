@@ -1,24 +1,42 @@
 <?php
 
 class SqlFormatter {
+    const UNDEFINED_TOKEN           = 'undefined';
+    const FIRST_LEVEL_KEYWORD_TOKEN = 'first_level_keyword';
+    const KEYWORD_TOKEN             = 'keyword';
+    const CHAR_TOKEN                = 'char';
+    const QUOTE_TOKEN               = 'quote';
+    const OPENING_PARENTHESES_TOKEN = 'opening_parentheses';
+    const CLOSING_PARENTHESES_TOKEN = 'closing_parentheses';
+    const WHITESPACE_TOKEN          = 'whitespace';
+
     private $options = array(
         'firstLevelKeywords' => array(
             'select',
-            "(delete (ignore )?)?from",
+            'delete',
+            'from',
             'where',
             'inner join',
             'left join',
             'order by',
             '(on duplicate key )?update',
             'set',
-            'insert (ignore )?into',
+            'insert',
+            'into',
+            'ignore',
             'limit',
             'group by',
             'values',
         ),
-        'wrapChars' => array(','),
-        'wrapWords' => array('or', 'and'),
-        'quoteChars' => array('\'', '`')
+        'wrapChars'     => array(','),
+        'wrapWords'     => array('or', 'and'),
+        'quoteChars'    => '\'`"',
+        'coverUpChar' => '_',
+        'highlightTokens' => array(
+            self::FIRST_LEVEL_KEYWORD_TOKEN,
+            self::KEYWORD_TOKEN,
+            self::QUOTE_TOKEN,
+        )
     );
 
     public function __construct($options = array())
@@ -26,87 +44,272 @@ class SqlFormatter {
         $this->options = array_merge($this->options, $options);
     }
 
-    public function format($query)
+    public function format($query, $asHtml = false)
     {
-        $query = $this->wrapFirstLevelKeywords($query);
-        $query = $this->wrapWords($query);
-        $query = $this->wrapParentheses($query);
-        $query = $this->wrapChars($query);
-        $query = ltrim($query, "\n");
+        $tokens = $this->getTokens($query);
+        $tokens = $this->mergeTokensSideBySide($tokens, self::FIRST_LEVEL_KEYWORD_TOKEN);
 
-        return $query;
+        $wrapTokens = array(
+            self::FIRST_LEVEL_KEYWORD_TOKEN,
+            self::KEYWORD_TOKEN,
+            self::CHAR_TOKEN,
+            self::OPENING_PARENTHESES_TOKEN,
+        );
+
+        $level     = 0;
+        $minLevels = array();
+        $lines     = array();
+
+        $levelDown    = function() use (&$level, &$minLevels) { $level <= end($minLevels) || $level--; };
+        $levelUp      = function() use (&$level) { $level++; };
+        $beginNewLine = function() use (&$lines) { $lines[] = ''; };
+        $isNewLine    = function() use (&$lines) {
+            $c = count($lines);
+            return $c === 0 || $lines[$c-1] === '';
+        };
+
+        $addToLine = function($t) use (&$lines, &$beginNewLine) {
+            $c = count($lines);
+
+            if (! isset($lines[$c-1])) {
+                $beginNewLine();
+                $c++;
+            }
+
+            $line = $lines[$c-1];
+            if (preg_match('/[\t ]+$/', $line)) {
+                $t = ltrim($t);
+            }
+            $lines[$c-1] .= $t;
+        };
+
+        foreach( $tokens as $token ) {
+
+            if (in_array($token['type'], array(self::FIRST_LEVEL_KEYWORD_TOKEN))) {
+                $beginNewLine();
+                $levelDown();
+            }
+
+            if ($token['type'] === self::CLOSING_PARENTHESES_TOKEN) {
+                $beginNewLine();
+                $level = array_pop($minLevels) - 1;
+            }
+
+            if ($isNewLine()) {
+                $addToLine(str_repeat("\t", $level));
+            }
+
+            $addToLine($asHtml ? $this->formatTokenHtml($token) : $token['value']);
+
+            if (in_array($token['type'], $wrapTokens)) {
+                $beginNewLine();
+            }
+
+            if (in_array($token['type'], array(self::FIRST_LEVEL_KEYWORD_TOKEN, self::OPENING_PARENTHESES_TOKEN))) {
+                $levelUp();
+
+                if ($token['type'] === self::OPENING_PARENTHESES_TOKEN) {
+                    $minLevels[] = $level;
+                }
+            }
+        }
+
+        $lines  = array_map(function($l) { return rtrim($l, ' '); }, $lines);
+        $lines  = array_filter($lines, function($l) { return trim($l) !== ''; });
+        $result = implode("\n", $lines);
+
+        return $result;
     }
 
     public function formatAsHtml($query)
     {
-        $result = $this->format($query);
+        $result = $this->format($query, true);
 
         return preg_replace_callback("/(\t*)(.+)/", function ($m)  {
             $level = strlen($m[1]);
-            return "<span class=\"level$level\">" . htmlentities($m[2]) . '</span>';
+            return "<span class=\"level$level\">" . $m[2] . '</span>';
         }, $result);
     }
 
-    private function wrapFirstLevelKeywords($query)
+    private function formatTokenHtml($token)
     {
-        return preg_replace(
-            array_map(array($this, 'getFirstLevelKeywordPattern'), $this->options['firstLevelKeywords']),
-            "\n$1\n\t",
-            $query);
+        $result = htmlentities($token['value']);
+
+        if (in_array($token['type'], $this->options['highlightTokens'])) {
+            $result = '<span class="' . $token['type'] . '">' . $result . '</span>';
+        }
+
+        return $result;
     }
 
-    private function wrapChars($result)
+    private function mergeTokensSideBySide($tokens, $type)
     {
-        return $this->wrapString(array_map(array($this, 'getCharPattern'), $this->options['wrapChars']), $result);
+        $result = array();
+
+        $types = array($type, self::WHITESPACE_TOKEN);
+
+        foreach ($tokens as $token) {
+            $last = array_pop($result);
+
+            if ($last && $last['type'] === $type && in_array($token['type'], $types)) {
+                $last['type']   = $type;
+                $last['value'] .= $token['value'];
+
+                $result[] = $last;
+            } else {
+                if ($last) {
+                    $result[] = $last;
+                }
+                $result[] = $token;
+            }
+        }
+
+        return $result;
     }
 
-    private function wrapWords($result)
+    private function getTokens($query)
     {
-        return $this->wrapString(array_map(array($this, 'getWordPattern'), $this->options['wrapWords']), $result);
+        $quoteTokens  = $this->getQuoteTokens($query);
+        $query        = $this->coverUpTokens($query, $quoteTokens);
+
+        $tokens =
+             $this->getTokensByPatterns($query,
+                array_map(array($this, 'getWordPattern'), $this->options['firstLevelKeywords']),
+                self::FIRST_LEVEL_KEYWORD_TOKEN)
+
+             +
+
+             $this->getTokensByPatterns($query,
+                array_map(array($this, 'getWordPattern'), $this->options['wrapWords']),
+                self::KEYWORD_TOKEN)
+
+             +
+
+             $this->getTokensByPatterns($query,
+                array_map(array($this, 'getCharPattern'), $this->options['wrapChars']),
+                self::CHAR_TOKEN)
+
+             +
+
+             $this->getTokensByPatterns($query, array('/\(/'),
+                self::OPENING_PARENTHESES_TOKEN)
+
+             +
+
+             $this->getTokensByPatterns($query, array('/\)/'),
+                self::CLOSING_PARENTHESES_TOKEN)
+
+             +
+
+             $quoteTokens;
+
+
+        $tokens += $this->getRemainingTokens($tokens, $query);
+        ksort($tokens);
+
+        return $tokens;
     }
 
-    private function wrapString($wrapPatterns, $result)
+    private function getRemainingTokens($tokens, $query)
     {
-        return preg_replace_callback("/(\t*).+/", function ($m) use ($wrapPatterns) {
-            return preg_replace(
-                $wrapPatterns,
-                "$1\n" . $m[1],
-                $m[0]);
-        }, $result);
+        ksort($tokens);
+
+        $startIndex      = 0;
+        $undefinedTokens = array();
+
+        foreach ($tokens as $index => $token) {
+            $undefinedTokenValue = substr($query, $startIndex, $index - $startIndex);
+
+            if (strlen($undefinedTokenValue)) {
+                $undefinedTokens[$startIndex] = $this->getTokenByString($undefinedTokenValue);
+            }
+
+            $startIndex = $index + strlen($token['value']);
+        }
+
+        $undefinedTokenValue = substr($query, $startIndex, strlen($query) - $startIndex);
+
+        if (strlen($undefinedTokenValue)) {
+            $undefinedTokens[$startIndex] = $this->getTokenByString($undefinedTokenValue);
+        }
+
+        return $undefinedTokens;
     }
 
-    private function getFirstLevelKeywordPattern($keyword)
+    private function getTokenByString($string)
     {
-        return $this->getWordPattern($keyword, "[\n ]*");
+        return array(
+            'type'  => trim($string) === '' ?  self::WHITESPACE_TOKEN : self::UNDEFINED_TOKEN,
+            'value' => $string
+        );
+    }
+
+    private function getTokensByPatterns($query, $patterns, $type) {
+        $result = array();
+
+        foreach ($patterns as $pattern)
+        {
+            preg_match_all($pattern, $query, $m, PREG_OFFSET_CAPTURE);
+
+            foreach($m[0] as $match) {
+                $result[$match[1]] = array(
+                    'type'  => $type,
+                    'value' => $match[0]
+                );
+            }
+        }
+
+        return $result;
+
+    }
+
+    private function getQuoteTokens($query)
+    {
+        $result = array();
+
+        $chars = $this->options['quoteChars'];
+        preg_match_all("/(?<!\\\\)(\\\\\\\\)*([${chars}])/", $query, $m,  PREG_OFFSET_CAPTURE );
+
+        $relevant = null;
+        foreach ($m[2] as $quoteMatch) {
+            if (is_null($relevant)) {
+                $relevant = $quoteMatch;
+            } elseif ($quoteMatch[0] === $relevant[0]) {
+                $result[$relevant[1]] = array(
+                    'type'  => self::QUOTE_TOKEN,
+                    'value' => substr($query, $relevant[1], $quoteMatch[1] - $relevant[1] + 1)
+                );
+
+                $relevant = null;
+            }
+        }
+
+        return $result;
+    }
+
+    private function coverUpTokens($query, $tokens)
+    {
+        foreach ($tokens as $index => $token) {
+            $length = strlen($token['value']);
+            $query  = substr_replace($query,  str_repeat($this->options['coverUpChar'], $length),
+                $index, $length);
+        }
+
+        return $query;
     }
 
     private function getCharPattern($char)
     {
-        return $this->getPattern('(' . $char . ")[\n ]*");
+        return $this->getPattern($char);
     }
 
-    private function getWordPattern($word, $prePattern = '')
+    private function getWordPattern($word)
     {
-        return $this->getPattern($prePattern . "(\b$word\b)[\n ]*", 'i');
+        return $this->getPattern("\b$word\b", 'i');
     }
 
     private function getPattern($pattern, $modifier = '')
     {
-        $lookAheadEvenQuotes = '';
-        foreach ($this->options['quoteChars'] as $c) {
-            $lookAheadEvenQuotes .= "(?=[^${c}]*(${c}[^${c}]*${c}[^${c}]*)*$)";
-        }
-
-        return '/' . $pattern . $lookAheadEvenQuotes . '/' . $modifier;
-    }
-
-    private function wrapParentheses($result)
-    {
-        $pattern = $this->getPattern("(\t*)([^\n()]*\()[\n ]*(((?>[^()]+)|(?R))*)\)", 'm');
-
-        return preg_replace_callback($pattern, function ($m) {
-            $line = $m[1] . $m[2] . "\n" . rtrim($m[3], ' ');
-            return str_replace("\n", "\n\t" . $m[1], $line) . "\n" . $m[1] .")";
-        }, $result);
+        return '/' . $pattern . '/' . $modifier;
     }
 }
