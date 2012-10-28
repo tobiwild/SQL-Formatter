@@ -56,48 +56,46 @@ class SqlFormatter {
             self::OPENING_PARENTHESES_TOKEN,
         );
 
-        $level     = 0;
-        $minLevels = array();
-        $lines     = array();
+        $level      = 0;
+        $minLevels  = array();
+        $lines      = array();
 
         $levelDown    = function() use (&$level, &$minLevels) { $level <= end($minLevels) || $level--; };
         $levelUp      = function() use (&$level) { $level++; };
-        $beginNewLine = function() use (&$lines) { $lines[] = ''; };
-        $isNewLine    = function() use (&$lines) {
-            $c = count($lines);
-            return $c === 0 || $lines[$c-1] === '';
+        $beginNewLine = function() use (&$lines) {
+            $lines[] = array(
+                'value' => '',
+                'level' => 0
+            );
         };
 
         $addToLine = function($t) use (&$lines, &$beginNewLine) {
             $c = count($lines);
 
-            if (! isset($lines[$c-1])) {
-                $beginNewLine();
-                $c++;
+            $line = $lines[$c-1]['value'];
+
+            $t = preg_replace('/\s+$/', ' ', $t);
+            if ($line === '' || preg_match('/\s+$/', $line)) {
+               $t = ltrim($t);
+            } else {
+               $t = preg_replace('/^\s+/', ' ', $t);
             }
 
-            $line = $lines[$c-1];
-            if (preg_match('/[\t ]+$/', $line)) {
-                $t = ltrim($t);
-            }
-            $lines[$c-1] .= $t;
+            $lines[$c-1]['value'] .= $t;
         };
 
+        $beginNewLine();
         foreach( $tokens as $token ) {
 
-            if (in_array($token['type'], array(self::FIRST_LEVEL_KEYWORD_TOKEN))) {
+            if ($token['type'] === self::FIRST_LEVEL_KEYWORD_TOKEN) {
                 $beginNewLine();
                 $levelDown();
-            }
-
-            if ($token['type'] === self::CLOSING_PARENTHESES_TOKEN) {
+            } elseif ($token['type'] === self::CLOSING_PARENTHESES_TOKEN) {
                 $beginNewLine();
                 $level = array_pop($minLevels) - 1;
             }
 
-            if ($isNewLine()) {
-                $addToLine(str_repeat("\t", $level));
-            }
+            $lines[count($lines)-1]['level'] = $level;
 
             $addToLine($asHtml ? $this->formatTokenHtml($token) : $token['value']);
 
@@ -114,8 +112,9 @@ class SqlFormatter {
             }
         }
 
-        $lines  = array_map(function($l) { return rtrim($l, ' '); }, $lines);
+        $lines  = array_map(function($l) { return str_repeat("\t", $l['level']) . rtrim($l['value'], ' '); }, $lines);
         $lines  = array_filter($lines, function($l) { return trim($l) !== ''; });
+
         $result = implode("\n", $lines);
 
         return $result;
