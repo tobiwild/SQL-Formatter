@@ -1,4 +1,5 @@
 SELECT
+	COUNT(),
 	Bug.ixBug AS ix,
 	Bug.ixBugEventLatest AS ixChild,
 	Area.nTypeAs nAreaType
@@ -21,9 +22,7 @@ WHERE
 			fDeleted = N
 	) AND
 	test = 'lala' AND
-	foo in (
-		'bar'
-	) OR
+	foo in ('bar') OR
 	kacke like '(anemone)' AND
 	dings in (
 		1,

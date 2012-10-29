@@ -60,6 +60,7 @@ class SqlFormatter {
         $level      = 0;
         $minLevels  = array();
         $lines      = array();
+        $pLines     = array();
 
         $levelDown    = function() use (&$level, &$minLevels) { $level <= end($minLevels) || $level--; };
         $levelUp      = function() use (&$level) { $level++; };
@@ -70,10 +71,14 @@ class SqlFormatter {
             );
         };
 
-        $addToLine = function($t) use (&$lines, &$beginNewLine) {
-            $c = count($lines);
+        $addToLine = function($t, $trim=false) use (&$lines, &$beginNewLine) {
+            $i = count($lines) - 1;
 
-            $line = $lines[$c-1]['value'];
+            if ($trim) {
+                $lines[$i]['value'] = rtrim($lines[$i]['value']);
+            }
+
+            $line = $lines[$i]['value'];
 
             $t = preg_replace('/\s+$/', ' ', $t);
             if ($line === '' || preg_match('/\s+$/', $line)) {
@@ -82,7 +87,7 @@ class SqlFormatter {
                $t = preg_replace('/^\s+/', ' ', $t);
             }
 
-            $lines[$c-1]['value'] .= $t;
+            $lines[$i]['value'] .= $t;
         };
 
         $beginNewLine();
@@ -92,13 +97,18 @@ class SqlFormatter {
                 $beginNewLine();
                 $levelDown();
             } elseif ($token['type'] === self::CLOSING_PARENTHESES_TOKEN) {
-                $beginNewLine();
+                if (count($lines) === array_pop($pLines)) {
+                    $addToLine(array_pop($lines)['value']);
+                } else {
+                    $beginNewLine();
+                }
                 $level = array_pop($minLevels) - 1;
             }
 
             $lines[count($lines)-1]['level'] = $level;
 
-            $addToLine($asHtml ? $this->formatTokenHtml($token) : $token['value']);
+            $trim = $token['type'] === self::CLOSING_PARENTHESES_TOKEN;
+            $addToLine($asHtml ? $this->formatTokenHtml($token) : $token['value'], $trim);
 
             if (in_array($token['type'], $wrapTokens)) {
                 $beginNewLine();
@@ -109,11 +119,12 @@ class SqlFormatter {
 
                 if ($token['type'] === self::OPENING_PARENTHESES_TOKEN) {
                     $minLevels[] = $level;
+                    $pLines[]    = count($lines);
                 }
             }
         }
 
-	$tabChar = $this->options['tabChar'];
+	    $tabChar = $this->options['tabChar'];
         $lines   = array_map(function($l) use ($tabChar) { return str_repeat($tabChar, $l['level']) . rtrim($l['value'], ' '); }, $lines);
         $lines   = array_filter($lines, function($l) { return trim($l) !== ''; });
 
