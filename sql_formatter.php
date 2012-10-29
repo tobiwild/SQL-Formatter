@@ -28,10 +28,11 @@ class SqlFormatter {
             'group by',
             'values',
         ),
-        'wrapChars'     => array(','),
-        'wrapWords'     => array('or', 'and'),
-        'quoteChars'    => '\'`"',
-        'coverUpChar' => '_',
+        'wrapChars'       => array(','),
+        'wrapWords'       => array('or', 'and'),
+        'quoteChars'      => '\'`"',
+        'coverUpChar'     => '_',
+	'tabChar'         => "\t",
         'highlightTokens' => array(
             self::FIRST_LEVEL_KEYWORD_TOKEN,
             self::KEYWORD_TOKEN,
@@ -112,8 +113,9 @@ class SqlFormatter {
             }
         }
 
-        $lines  = array_map(function($l) { return str_repeat("\t", $l['level']) . rtrim($l['value'], ' '); }, $lines);
-        $lines  = array_filter($lines, function($l) { return trim($l) !== ''; });
+	$tabChar = $this->options['tabChar'];
+        $lines   = array_map(function($l) use ($tabChar) { return str_repeat($tabChar, $l['level']) . rtrim($l['value'], ' '); }, $lines);
+        $lines   = array_filter($lines, function($l) { return trim($l) !== ''; });
 
         $result = implode("\n", $lines);
 
