@@ -98,7 +98,8 @@ class SqlFormatter {
                 $levelDown();
             } elseif ($token['type'] === self::CLOSING_PARENTHESES_TOKEN) {
                 if (count($lines) === array_pop($pLines)) {
-                    $addToLine(array_pop($lines)['value']);
+                    $lastLine = array_pop($lines);
+                    $addToLine($lastLine['value']);
                 } else {
                     $beginNewLine();
                 }
